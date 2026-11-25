@@ -1,0 +1,45 @@
+name: Baixar Enunciado do Exercism
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  adicionar-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Buscar instructions.md no Exercism
+        run: |
+          PASTAS=$(git diff --name-only HEAD~1 HEAD | xargs -n1 dirname | sort -u)
+
+          for PASTA in $PASTAS; do
+            if [[ "$PASTA" == "." || "$PASTA" == .github* ]]; then
+              continue
+            fi
+
+            EXERCICIO=$(basename "$PASTA")
+            URL="https://githubusercontent.com"
+
+            echo "Verificando exercício: $EXERCICIO na pasta $PASTA..."
+
+            if curl -fsSL "$URL" -o "$PASTA/README.md"; then
+              echo "README.md baixado com sucesso para $PASTA!"
+            else
+              echo "Enunciado não encontrado para $EXERCICIO."
+            fi
+          done
+
+      - name: Salvar README no repositório
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@://github.com"
+          git add .
+          git diff --staged --quiet || git commit -m "docs: adiciona enunciado do exercício"
+          git push
