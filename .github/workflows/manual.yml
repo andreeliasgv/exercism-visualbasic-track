@@ -1,45 +1,84 @@
-name: Baixar Enunciado do Exercism
+
+name: Baixar Enunciados do Exercism
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'solutions/vbnet/**'
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: documentar-exercicios-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   adicionar-readme:
     runs-on: ubuntu-latest
+
     steps:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
-      - name: Buscar instructions.md no Exercism
+      - name: Buscar enunciados faltantes no Exercism
+        shell: bash
         run: |
-          PASTAS=$(git diff --name-only HEAD~1 HEAD | xargs -n1 dirname | sort -u)
+          BASE="solutions/vbnet"
+          REPO="https://raw.githubusercontent.com/exercism/vbnet/main/exercises"
 
-          for PASTA in $PASTAS; do
-            if [[ "$PASTA" == "." || "$PASTA" == .github* ]]; then
+          if [[ ! -d "$BASE" ]]; then
+            echo "Diretório $BASE não encontrado."
+            exit 0
+          fi
+
+          for PASTA in "$BASE"/*/; do
+            [[ -d "$PASTA" ]] || continue
+
+            EXERCICIO=$(basename "$PASTA")
+            README="${PASTA}README.md"
+
+            if [[ -f "$README" ]]; then
+              echo "[IGNORADO] $EXERCICIO já possui README.md."
               continue
             fi
 
-            EXERCICIO=$(basename "$PASTA")
-            URL="https://githubusercontent.com"
+            echo "[BUSCANDO] $EXERCICIO..."
 
-            echo "Verificando exercício: $EXERCICIO na pasta $PASTA..."
+            TEMP=$(mktemp)
+            ENCONTRADO=false
 
-            if curl -fsSL "$URL" -o "$PASTA/README.md"; then
-              echo "README.md baixado com sucesso para $PASTA!"
-            else
-              echo "Enunciado não encontrado para $EXERCICIO."
+            for TIPO in practice concept; do
+              URL="$REPO/$TIPO/$EXERCICIO/.docs/instructions.md"
+
+              if curl -fsSL --retry 3 "$URL" -o "$TEMP"; then
+                mv "$TEMP" "$README"
+                echo "[SUCESSO] README.md baixado para $EXERCICIO."
+                ENCONTRADO=true
+                break
+              fi
+            done
+
+            if [[ "$ENCONTRADO" == false ]]; then
+              rm -f "$TEMP"
+              echo "[AVISO] Enunciado não encontrado para $EXERCICIO."
             fi
           done
 
-      - name: Salvar README no repositório
+      - name: Salvar READMEs no repositório
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@://github.com"
-          git add .
-          git diff --staged --quiet || git commit -m "docs: adiciona enunciado do exercício"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- solutions/vbnet/
+
+          if git diff --staged --quiet; then
+            echo "Nenhum README.md novo para salvar."
+            exit 0
+          fi
+
+          git commit -m "docs: adiciona enunciados faltantes do Exercism"
           git push
